@@ -23,7 +23,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "stm32f429i_discovery_lcd.h"
+#include "stm32f429i_discovery_sdram.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -33,7 +34,6 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -123,7 +123,17 @@ int main(void)
   MX_TIM1_Init();
   MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
+  // Init hardware while interrupts are still simple and no tasks are running
+    BSP_LCD_Init();
+    BSP_LCD_LayerDefaultInit(0, LCD_FRAME_BUFFER);
+    BSP_LCD_SelectLayer(0);
+    BSP_LCD_DisplayOn();
 
+    // Clear the screen once so it's ready when the task starts
+    BSP_LCD_Clear(LCD_COLOR_WHITE);
+    BSP_LCD_SetFont(&Font24);
+    BSP_LCD_SetTextColor(LCD_COLOR_BLACK);
+    BSP_LCD_DisplayStringAt(0, 140, (uint8_t*)"Hello World!", CENTER_MODE);
   /* USER CODE END 2 */
 
   /* USER CODE BEGIN RTOS_MUTEX */
@@ -654,16 +664,12 @@ void StartDefaultTask(void const * argument)
   /* init code for USB_HOST */
   MX_USB_HOST_Init();
   /* USER CODE BEGIN 5 */
-  /* Infinite loop */
-  for(;;)
-  {
-	  // Toggle Green LED (PG13)
-	  HAL_GPIO_TogglePin(GPIOG, GPIO_PIN_13);
-
-	  // Toggle Red LED (PG14)
-	  HAL_GPIO_TogglePin(GPIOG, GPIO_PIN_14);
-    osDelay(1);
-  }
+    /* Infinite loop */
+    for(;;)
+    {
+        HAL_GPIO_TogglePin(GPIOG, LD3_Pin); // Green LED heart-beat
+        osDelay(500); // Changed to 500ms so you can actually see the blink
+    }
   /* USER CODE END 5 */
 }
 
