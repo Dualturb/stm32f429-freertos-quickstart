@@ -1,0 +1,16 @@
+# Build outputs
+Debug/
+Release/
+bin/
+obj/
+
+# IDE specific
+.settings/
+.project
+.cproject
+.mxproject
+*.launch
+
+# User-specific
+*.bak
+*.log
