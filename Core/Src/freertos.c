@@ -24,7 +24,9 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "cmsis_os.h"
+#include "lvgl/lvgl.h"
+#include "lv_port_disp.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -44,7 +46,7 @@
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN Variables */
-
+extern osThreadId guiTaskHandle;
 /* USER CODE END Variables */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -115,5 +117,52 @@ void vApplicationGetIdleTaskMemory( StaticTask_t **ppxIdleTaskTCBBuffer, StackTy
 
 /* Private application code --------------------------------------------------*/
 /* USER CODE BEGIN Application */
+/* This hook is called every 1ms by the FreeRTOS scheduler */
+void vApplicationTickHook(void)
+{
+//    lv_tick_inc(1);
+}
 
+/* Button event callback */
+static void btn_event_cb(lv_event_t * e) {
+    lv_event_code_t code = lv_event_get_code(e);
+    if(code == LV_EVENT_CLICKED) {
+        lv_obj_t * btn = lv_event_get_target(e);
+        lv_obj_t * label = lv_obj_get_child(btn, 0);
+        lv_label_set_text(label, "Clicked!");
+
+        /* Visual feedback on the board */
+        HAL_GPIO_TogglePin(GPIOG, LD4_Pin);
+    }
+}
+
+/**
+  * @brief  Function implementing the guiTask thread.
+  * @param  argument: Not used
+  * @retval None
+  */
+void StartGuiTask(void *argument)
+{
+	  lv_init();
+	  lv_port_disp_init();
+	  lv_port_indev_init(); // Initialize Touch!
+
+	  /* Create a Test Button to verify touch works */
+	  lv_obj_t * btn = lv_btn_create(lv_scr_act());
+	  lv_obj_set_size(btn, 100, 50);
+	  lv_obj_center(btn);
+
+	  lv_obj_t * label = lv_label_create(btn);
+	  lv_label_set_text(label, "Click Me");
+	  lv_obj_center(label);
+
+	  lv_obj_add_event_cb(btn, btn_event_cb, LV_EVENT_CLICKED, NULL);
+
+	  for(;;)
+	  {
+	    lv_timer_handler();
+//	    HAL_GPIO_TogglePin(GPIOG, LD4_Pin); // If this blinks, we are stable!
+	    osDelay(5);
+	  }
+}
 /* USER CODE END Application */

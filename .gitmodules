@@ -1,0 +1,4 @@
+[submodule "Middlewares/Third_Party/lvgl"]
+	path = Middlewares/Third_Party/lvgl
+	url = https://github.com/lvgl/lvgl.git
+	branch = release/v8.4

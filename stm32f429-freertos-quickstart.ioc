@@ -2,6 +2,8 @@
 CAD.formats=
 CAD.pinconfig=
 CAD.provider=
+DMA2D.ColorMode=DMA2D_OUTPUT_RGB565
+DMA2D.IPParameters=ColorMode
 FMC.CASLatency1=FMC_SDRAM_CAS_LATENCY_3
 FMC.ExitSelfRefreshDelay1=7
 FMC.IPParameters=CASLatency1,SDClockPeriod1,SDClockPeriod2,ReadBurst1,ReadPipeDelay1,ReadPipeDelay2,LoadToActiveDelay1,ExitSelfRefreshDelay1,SelfRefreshTime1,RowCycleDelay1,RowCycleDelay2,WriteRecoveryTime1,RPDelay1,RPDelay2,RCDDelay1
