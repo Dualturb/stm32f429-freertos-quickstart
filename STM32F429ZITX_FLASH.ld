@@ -47,7 +47,11 @@ MEMORY
 {
   CCMRAM    (xrw)    : ORIGIN = 0x10000000,   LENGTH = 64K
   RAM    (xrw)    : ORIGIN = 0x20000000,   LENGTH = 192K
-  FLASH    (rx)    : ORIGIN = 0x8000000,   LENGTH = 2048K
+  /* Split 2048K Flash: 1MB for Code, 1MB for Artok UI Binary */
+  FLASH     (rx)     : ORIGIN = 0x08000000,   LENGTH = 1024K 
+  UI_FLASH  (r)      : ORIGIN = 0x08100000,   LENGTH = 1024K
+  /* External SDRAM on the STM32F429I-DISC1 */
+  SDRAM     (xrw)    : ORIGIN = 0xD0000000,   LENGTH = 8M
 }
 
 /* Sections */
@@ -184,6 +188,36 @@ SECTIONS
     _ebss = .;         /* define a global symbol at bss end */
     __bss_end__ = _ebss;
   } >RAM
+  
+  /* --- ARTOK CUSTOM SECTIONS --- */
+
+  /* Section for External SDRAM data (Framebuffers & Artok Heap) */
+  .sdram_data (NOLOAD) :
+  {
+    . = ALIGN(4);
+    . = ORIGIN(SDRAM) + 1M;
+    _ssdram = .;
+    *(.sdram_data)
+    *(.sdram_data*)
+    . = ALIGN(4);
+    _esdram = .;
+  } >SDRAM
+
+  /* Section to reserve space for ui.bin in Flash */
+  .ui_storage (NOLOAD) :
+  {
+    . = ALIGN(4);
+    _artok_ui_start = .;
+    KEEP(*(.ui_storage))
+    /* Ensures 1MB is reserved in the map */
+    . = . + LENGTH(UI_FLASH); 
+    _artok_ui_end = .;
+  } >UI_FLASH
+
+  /* Symbols for C Code access */
+  _ui_bin_flash_base = ORIGIN(UI_FLASH);
+  _ui_bin_flash_limit = ORIGIN(UI_FLASH) + LENGTH(UI_FLASH);
+  
 
   /* User_heap_stack section, used to check that there is enough "RAM" Ram  type memory left */
   ._user_heap_stack :

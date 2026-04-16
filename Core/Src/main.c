@@ -1,20 +1,20 @@
 /* USER CODE BEGIN Header */
 /**
-  ******************************************************************************
-  * @file           : main.c
-  * @brief          : Main program body
-  ******************************************************************************
-  * @attention
-  *
-  * Copyright (c) 2026 STMicroelectronics.
-  * All rights reserved.
-  *
-  * This software is licensed under terms that can be found in the LICENSE file
-  * in the root directory of this software component.
-  * If no LICENSE file comes with this software, it is provided AS-IS.
-  *
-  ******************************************************************************
-  */
+ ******************************************************************************
+ * @file           : main.c
+ * @brief          : Main program body
+ ******************************************************************************
+ * @attention
+ *
+ * Copyright (c) 2026 STMicroelectronics.
+ * All rights reserved.
+ *
+ * This software is licensed under terms that can be found in the LICENSE file
+ * in the root directory of this software component.
+ * If no LICENSE file comes with this software, it is provided AS-IS.
+ *
+ ******************************************************************************
+ */
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
@@ -25,6 +25,10 @@
 /* USER CODE BEGIN Includes */
 #include "stm32f429i_discovery_lcd.h"
 #include "stm32f429i_discovery_sdram.h"
+#include "atk_runtime.h"
+#include "atk_api.h"
+#include "flash.h"
+#include "hmi.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -54,13 +58,13 @@ SPI_HandleTypeDef hspi5;
 
 TIM_HandleTypeDef htim1;
 
+UART_HandleTypeDef huart5;
 UART_HandleTypeDef huart1;
 
 SDRAM_HandleTypeDef hsdram1;
 
 osThreadId defaultTaskHandle;
 /* USER CODE BEGIN PV */
-
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -74,6 +78,7 @@ static void MX_LTDC_Init(void);
 static void MX_SPI5_Init(void);
 static void MX_TIM1_Init(void);
 static void MX_USART1_UART_Init(void);
+static void MX_UART5_Init(void);
 void StartDefaultTask(void const * argument);
 
 /* USER CODE BEGIN PFP */
@@ -82,7 +87,11 @@ void StartDefaultTask(void const * argument);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-
+void DMA2D_TransferComplete(DMA2D_HandleTypeDef *hdma2d) {
+	extern osSemaphoreId hmiDma2dSemHandle;
+	ART_FlushComplete(); // Notify Artok Engine
+	osSemaphoreRelease(hmiDma2dSemHandle); // Wake up the HMI task
+}
 /* USER CODE END 0 */
 
 /**
@@ -93,7 +102,6 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
-
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -122,18 +130,25 @@ int main(void)
   MX_SPI5_Init();
   MX_TIM1_Init();
   MX_USART1_UART_Init();
+  MX_UART5_Init();
   /* USER CODE BEGIN 2 */
-  // Init hardware while interrupts are still simple and no tasks are running
-    BSP_LCD_Init();
-    BSP_LCD_LayerDefaultInit(0, LCD_FRAME_BUFFER);
-    BSP_LCD_SelectLayer(0);
-    BSP_LCD_DisplayOn();
+  // 1. Assign the callback here to ensure it's not overwritten by HAL_Init calls
+  hdma2d.XferCpltCallback = DMA2D_TransferComplete;
 
-    // Clear the screen once so it's ready when the task starts
-    BSP_LCD_Clear(LCD_COLOR_WHITE);
-    BSP_LCD_SetFont(&Font24);
-    BSP_LCD_SetTextColor(LCD_COLOR_BLACK);
-    BSP_LCD_DisplayStringAt(0, 140, (uint8_t*)"Hello World!", CENTER_MODE);
+  // 2. Standard SDRAM Wakeup
+  SDRAM_Initialization_Sequence(&hsdram1);
+
+  // 3. Clear the frame buffer to black before starting LTDC
+  // This prevents that "snowy" static noise on boot
+  memset((void*)0xD0000000, 0, 240 * 320 * 2);
+  // 2. Artok Flasher Init (Spawns the flash thread)
+  FLASH_Init();
+  // 2. Initialize the HMI (Spawns the Artok UI thread)
+  HMI_Init();
+
+  // 3. Start the UART5 gate for live commands and firmware updates
+  __HAL_UART_CLEAR_OREFLAG(&huart5);
+  HAL_UART_Receive_IT(&huart5, &uart_rx_byte, 1);
   /* USER CODE END 2 */
 
   /* USER CODE BEGIN RTOS_MUTEX */
@@ -265,10 +280,10 @@ static void MX_DMA2D_Init(void)
   /* USER CODE END DMA2D_Init 1 */
   hdma2d.Instance = DMA2D;
   hdma2d.Init.Mode = DMA2D_M2M;
-  hdma2d.Init.ColorMode = DMA2D_OUTPUT_ARGB8888;
+  hdma2d.Init.ColorMode = DMA2D_OUTPUT_RGB565;
   hdma2d.Init.OutputOffset = 0;
   hdma2d.LayerCfg[1].InputOffset = 0;
-  hdma2d.LayerCfg[1].InputColorMode = DMA2D_INPUT_ARGB8888;
+  hdma2d.LayerCfg[1].InputColorMode = DMA2D_INPUT_RGB565;
   hdma2d.LayerCfg[1].AlphaMode = DMA2D_NO_MODIF_ALPHA;
   hdma2d.LayerCfg[1].InputAlpha = 0;
   if (HAL_DMA2D_Init(&hdma2d) != HAL_OK)
@@ -280,7 +295,7 @@ static void MX_DMA2D_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN DMA2D_Init 2 */
-
+  hdma2d.XferCpltCallback = DMA2D_TransferComplete;
   /* USER CODE END DMA2D_Init 2 */
 
 }
@@ -357,11 +372,11 @@ static void MX_LTDC_Init(void)
   hltdc.Init.PCPolarity = LTDC_PCPOLARITY_IPC;
   hltdc.Init.HorizontalSync = 9;
   hltdc.Init.VerticalSync = 1;
-  hltdc.Init.AccumulatedHBP = 29;
-  hltdc.Init.AccumulatedVBP = 3;
-  hltdc.Init.AccumulatedActiveW = 269;
-  hltdc.Init.AccumulatedActiveH = 323;
-  hltdc.Init.TotalWidth = 279;
+  hltdc.Init.AccumulatedHBP = 39;
+  hltdc.Init.AccumulatedVBP = 5;
+  hltdc.Init.AccumulatedActiveW = 279;
+  hltdc.Init.AccumulatedActiveH = 325;
+  hltdc.Init.TotalWidth = 289;
   hltdc.Init.TotalHeigh = 327;
   hltdc.Init.Backcolor.Blue = 0;
   hltdc.Init.Backcolor.Green = 0;
@@ -480,6 +495,39 @@ static void MX_TIM1_Init(void)
 }
 
 /**
+  * @brief UART5 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_UART5_Init(void)
+{
+
+  /* USER CODE BEGIN UART5_Init 0 */
+
+  /* USER CODE END UART5_Init 0 */
+
+  /* USER CODE BEGIN UART5_Init 1 */
+
+  /* USER CODE END UART5_Init 1 */
+  huart5.Instance = UART5;
+  huart5.Init.BaudRate = 115200;
+  huart5.Init.WordLength = UART_WORDLENGTH_8B;
+  huart5.Init.StopBits = UART_STOPBITS_1;
+  huart5.Init.Parity = UART_PARITY_NONE;
+  huart5.Init.Mode = UART_MODE_TX_RX;
+  huart5.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart5.Init.OverSampling = UART_OVERSAMPLING_16;
+  if (HAL_UART_Init(&huart5) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN UART5_Init 2 */
+
+  /* USER CODE END UART5_Init 2 */
+
+}
+
+/**
   * @brief USART1 Initialization Function
   * @param None
   * @retval None
@@ -539,10 +587,10 @@ static void MX_FMC_Init(void)
   hsdram1.Init.WriteProtection = FMC_SDRAM_WRITE_PROTECTION_DISABLE;
   hsdram1.Init.SDClockPeriod = FMC_SDRAM_CLOCK_PERIOD_2;
   hsdram1.Init.ReadBurst = FMC_SDRAM_RBURST_DISABLE;
-  hsdram1.Init.ReadPipeDelay = FMC_SDRAM_RPIPE_DELAY_1;
+  hsdram1.Init.ReadPipeDelay = FMC_SDRAM_RPIPE_DELAY_0;
   /* SdramTiming */
   SdramTiming.LoadToActiveDelay = 2;
-  SdramTiming.ExitSelfRefreshDelay = 7;
+  SdramTiming.ExitSelfRefreshDelay = 9;
   SdramTiming.SelfRefreshTime = 4;
   SdramTiming.RowCycleDelay = 7;
   SdramTiming.WriteRecoveryTime = 3;
@@ -555,7 +603,6 @@ static void MX_FMC_Init(void)
   }
 
   /* USER CODE BEGIN FMC_Init 2 */
-
   /* USER CODE END FMC_Init 2 */
 }
 
@@ -649,27 +696,97 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+/**
+ * @brief  Rx Transfer completed callbacks.
+ * @param  huart: UART handle
+ */
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+  if (huart->Instance == UART5)
+  {
+    // Clear Overrun flag if it occurs during high-load UI rendering
+    __HAL_UART_CLEAR_OREFLAG(huart);
+
+    // Feed Flasher: Looks for the magic header to start a UI update
+    FLASH_Feed_Byte(uart_rx_byte);
+
+    // Feed HMI Engine: Processes incoming JSON frames (e.g. {"cmd":"reboot"})
+    HMI_Feed_CommData(&uart_rx_byte, 1);
+
+    // Restart Interrupt
+    HAL_UART_Receive_IT(&huart5, &uart_rx_byte, 1);
+  }
+}
+
+void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName)
+{
+  for (;;)
+    ;
+}
+
+/**
+ * @brief  Sends the command sequence to the SDRAM chip to wake it up.
+ */
+void SDRAM_Initialization_Sequence(SDRAM_HandleTypeDef *hsdram)
+{
+  FMC_SDRAM_CommandTypeDef command;
+
+  /* 1. Clock enable command */
+  command.CommandMode = FMC_SDRAM_CMD_CLK_ENABLE;
+  command.CommandTarget = FMC_SDRAM_CMD_TARGET_BANK2;
+  command.AutoRefreshNumber = 1;
+  command.ModeRegisterDefinition = 0;
+  HAL_SDRAM_SendCommand(hsdram, &command, 0xFFFF);
+  HAL_Delay(1);
+
+  /* 2. Precharge all command */
+  command.CommandMode = FMC_SDRAM_CMD_PALL;
+  command.CommandTarget = FMC_SDRAM_CMD_TARGET_BANK2;
+  command.AutoRefreshNumber = 1;
+  command.ModeRegisterDefinition = 0;
+  HAL_SDRAM_SendCommand(hsdram, &command, 0xFFFF);
+
+  /* 3. Auto-refresh command */
+  command.CommandMode = FMC_SDRAM_CMD_AUTOREFRESH_MODE;
+  command.CommandTarget = FMC_SDRAM_CMD_TARGET_BANK2;
+  command.AutoRefreshNumber = 8;
+  command.ModeRegisterDefinition = 0;
+  HAL_SDRAM_SendCommand(hsdram, &command, 0xFFFF);
+
+  /* 4. External memory mode register configuration */
+  // Burst length: 1, Burst type: sequential, CAS latency: 3, Write burst: single
+  uint32_t tmpmrd = (uint32_t)0x0230;
+  command.CommandMode = FMC_SDRAM_CMD_LOAD_MODE;
+  command.CommandTarget = FMC_SDRAM_CMD_TARGET_BANK2;
+  command.AutoRefreshNumber = 1;
+  command.ModeRegisterDefinition = tmpmrd;
+  HAL_SDRAM_SendCommand(hsdram, &command, 0xFFFF);
+
+  /* 5. Set refresh rate counter */
+  // (64ms / 4096 rows) * 90MHz - 20
+  HAL_SDRAM_ProgramRefreshRate(hsdram, 1292);
+}
 
 /* USER CODE END 4 */
 
 /* USER CODE BEGIN Header_StartDefaultTask */
 /**
-  * @brief  Function implementing the defaultTask thread.
-  * @param  argument: Not used
-  * @retval None
-  */
+ * @brief  Function implementing the defaultTask thread.
+ * @param  argument: Not used
+ * @retval None
+ */
 /* USER CODE END Header_StartDefaultTask */
 void StartDefaultTask(void const * argument)
 {
   /* init code for USB_HOST */
   MX_USB_HOST_Init();
   /* USER CODE BEGIN 5 */
-    /* Infinite loop */
-    for(;;)
-    {
-        HAL_GPIO_TogglePin(GPIOG, LD3_Pin); // Green LED heart-beat
-        osDelay(500); // Changed to 500ms so you can actually see the blink
-    }
+  /* Infinite loop */
+  for (;;)
+  {
+    HAL_GPIO_TogglePin(GPIOG, LD3_Pin); // Green LED heart-beat
+    osDelay(500);                       // Changed to 500ms so you can actually see the blink
+  }
   /* USER CODE END 5 */
 }
 
@@ -690,7 +807,10 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
     HAL_IncTick();
   }
   /* USER CODE BEGIN Callback 1 */
-
+  if (htim->Instance == TIM6)
+  {
+    ART_IncTick(1);
+  }
   /* USER CODE END Callback 1 */
 }
 
@@ -705,6 +825,10 @@ void Error_Handler(void)
   __disable_irq();
   while (1)
   {
+    // SLOW BLINK = HAL Error (Internal Flash failure, etc.)
+    HAL_GPIO_TogglePin(GPIOG, LD4_Pin);
+    for (volatile int i = 0; i < 1000000; i++)
+      ;
   }
   /* USER CODE END Error_Handler_Debug */
 }

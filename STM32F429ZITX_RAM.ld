@@ -47,7 +47,11 @@ MEMORY
 {
   CCMRAM    (xrw)    : ORIGIN = 0x10000000,   LENGTH = 64K
   RAM    (xrw)    : ORIGIN = 0x20000000,   LENGTH = 192K
-  FLASH    (rx)    : ORIGIN = 0x8000000,   LENGTH = 2048K
+/* Keep Flash definitions so the code can still reference the UI binary */
+  FLASH     (rx)     : ORIGIN = 0x08000000,   LENGTH = 1024K 
+  UI_FLASH  (r)      : ORIGIN = 0x08100000,   LENGTH = 1024K
+  /* External SDRAM preserved for Artok Runtime */
+  SDRAM     (xrw)    : ORIGIN = 0xD0000000,   LENGTH = 8M
 }
 
 /* Sections */
@@ -184,6 +188,34 @@ SECTIONS
     _ebss = .;         /* define a global symbol at bss end */
     __bss_end__ = _ebss;
   } >RAM
+  
+  /* --- ARTOK CUSTOM SECTIONS --- */
+
+  /* Preserved for Artok working memory even in RAM debug mode */
+  .sdram_data (NOLOAD) :
+  {
+    . = ALIGN(4);
+    _ssdram = .;
+    *(.sdram_data)
+    *(.sdram_data*)
+    . = ALIGN(4);
+    _esdram = .;
+  } >SDRAM
+
+  /* Allow the C code to see where the UI binary is stored in Flash */
+  .ui_storage (NOLOAD) :
+  {
+    . = ALIGN(4);
+    _artok_ui_start = .;
+    KEEP(*(.ui_storage))
+    . = . + LENGTH(UI_FLASH);
+    _artok_ui_end = .;
+  } >UI_FLASH
+
+  /* Symbols for C Code access */
+  _ui_bin_flash_base = ORIGIN(UI_FLASH);
+  _ui_bin_flash_limit = ORIGIN(UI_FLASH) + LENGTH(UI_FLASH);
+  
 
   /* User_heap_stack section, used to check that there is enough "RAM" Ram  type memory left */
   ._user_heap_stack :
